@@ -49,16 +49,8 @@
   const db   = getFirestore(app);
   const auth = getAuth(app);
 
-  // Sign in anonymously so Firestore security rules can enforce request.auth != null.
-  // Swap signInAnonymously() for a real provider when you are ready for full Auth.
-  let _authReady = false;
-  signInAnonymously(auth)
-    .then(() => { _authReady = true; })
-    .catch(err => {
-      console.warn('Firebase anonymous auth failed:', err.message,
-        '— Firestore writes may be blocked by security rules.');
-      _authReady = true; // still let the app proceed; rules may allow open access in dev
-    });
+  // Firebase auth ready
+  let _authReady = true;
 
   // Wait for auth to settle before allowing any Firestore calls
   async function waitForAuth() {
@@ -161,24 +153,22 @@ window.addEventListener('load', async () => {
     const adminEmail = 'admin@edr.com';
     const adminPassword = 'Admin123!';
 
-    // Try login first
-    const loginResult = await window.firebaseLogin(adminEmail, adminPassword);
+    // Create admin only once
+    try {
+      const result = await createUserWithEmailAndPassword(auth, adminEmail, adminPassword);
 
-    if (!loginResult.success) {
-      console.log('Admin not found. Creating default admin...');
+      await setDoc(doc(db, 'users', result.user.uid), {
+        email: adminEmail,
+        role: 'admin',
+        createdAt: new Date().toISOString()
+      });
 
-      const createResult = await window.createFirebaseUser(
-        adminEmail,
-        adminPassword,
-        'admin'
-      );
-
-      console.log('Default admin created:', createResult);
-    } else {
-      console.log('Default admin already exists.');
+      console.log('Default admin created');
+    } catch (err) {
+      console.log('Admin may already exist:', err.message);
     }
   } catch (e) {
-    console.error('Auto admin creation failed:', e);
+    console.error(e);
   }
 });
 // ================= END AUTO CREATE DEFAULT ADMIN =================
@@ -2004,6 +1994,16 @@ Email: admin@edr.com
 Password: Admin123!
 -->
 
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
+-->
+
 </body></html>&apos;;
 }
 
@@ -2074,6 +2074,16 @@ Enable Email/Password Authentication in Firebase Console.
 DEFAULT ADMIN LOGIN
 Email: admin@edr.com
 Password: Admin123!
+-->
+
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
 -->
 
 </body></html>&apos;;
@@ -2384,6 +2394,16 @@ Email: admin@edr.com
 Password: Admin123!
 -->
 
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
+-->
+
 </body>
 </html>`;
 
@@ -2556,6 +2576,16 @@ Enable Email/Password Authentication in Firebase Console.
 DEFAULT ADMIN LOGIN
 Email: admin@edr.com
 Password: Admin123!
+-->
+
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
 -->
 
 </body>
@@ -4181,6 +4211,16 @@ Email: admin@edr.com
 Password: Admin123!
 -->
 
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
+-->
+
 </body>
 </html>`;
 
@@ -4321,6 +4361,16 @@ Email: admin@edr.com
 Password: Admin123!
 -->
 
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
+-->
+
 </body>
 </html>
 '></iframe>
@@ -4397,6 +4447,16 @@ Enable Email/Password Authentication in Firebase Console.
 DEFAULT ADMIN LOGIN
 Email: admin@edr.com
 Password: Admin123!
+-->
+
+
+<!--
+LOGIN DETAILS
+Email: admin@edr.com
+Password: Admin123!
+
+IMPORTANT:
+Enable Email/Password in Firebase Authentication.
 -->
 
 </body>
