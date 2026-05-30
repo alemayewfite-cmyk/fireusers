@@ -10,7 +10,7 @@
 <script type="module">
   import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
   import { getFirestore, doc, getDoc, setDoc } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
-  import { getAuth, signInAnonymously, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, updatePassword } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+  import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
   /*
    * ── FIRESTORE SECURITY RULES (deploy via Firebase Console → Firestore → Rules) ──
@@ -49,8 +49,16 @@
   const db   = getFirestore(app);
   const auth = getAuth(app);
 
-  // Firebase auth ready
-  let _authReady = true;
+  // Sign in anonymously so Firestore security rules can enforce request.auth != null.
+  // Swap signInAnonymously() for a real provider when you are ready for full Auth.
+  let _authReady = false;
+  signInAnonymously(auth)
+    .then(() => { _authReady = true; })
+    .catch(err => {
+      console.warn('Firebase anonymous auth failed:', err.message,
+        '— Firestore writes may be blocked by security rules.');
+      _authReady = true; // still let the app proceed; rules may allow open access in dev
+    });
 
   // Wait for auth to settle before allowing any Firestore calls
   async function waitForAuth() {
@@ -59,121 +67,6 @@
       const unsub = onAuthStateChanged(auth, () => { unsub(); _authReady = true; resolve(); });
     });
   }
-
-  
-// ================= USER AUTH SYSTEM USING FIREBASE AUTH + FIRESTORE =================
-window.EDRAuth = {
-  currentUser: null,
-
-  async createUser(email, password, role = 'user') {
-    try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password);
-
-      await setDoc(doc(db, 'users', cred.user.uid), {
-        email: email,
-        role: role,
-        createdAt: new Date().toISOString()
-      });
-
-      return {
-        success: true,
-        uid: cred.user.uid
-      };
-    } catch (err) {
-      console.error('Create User Error:', err);
-      return {
-        success: false,
-        error: err.message
-      };
-    }
-  },
-
-  async login(email, password) {
-    try {
-      const cred = await signInWithEmailAndPassword(auth, email, password);
-      this.currentUser = cred.user;
-
-      const userDoc = await getDoc(doc(db, 'users', cred.user.uid));
-
-      return {
-        success: true,
-        uid: cred.user.uid,
-        profile: userDoc.exists() ? userDoc.data() : {}
-      };
-    } catch (err) {
-      console.error('Login Error:', err);
-      return {
-        success: false,
-        error: err.message
-      };
-    }
-  },
-
-  async changePassword(newPassword) {
-    try {
-      if (!auth.currentUser) {
-        return {
-          success: false,
-          error: 'No logged in user'
-        };
-      }
-
-      await updatePassword(auth.currentUser, newPassword);
-
-      return {
-        success: true
-      };
-    } catch (err) {
-      console.error('Password Change Error:', err);
-      return {
-        success: false,
-        error: err.message
-      };
-    }
-  }
-};
-
-// Make globally accessible
-window.createFirebaseUser = async (email, password, role) => {
-  return await window.EDRAuth.createUser(email, password, role);
-};
-
-window.firebaseLogin = async (email, password) => {
-  return await window.EDRAuth.login(email, password);
-};
-
-window.changeFirebasePassword = async (newPassword) => {
-  return await window.EDRAuth.changePassword(newPassword);
-};
-// ================= END USER AUTH SYSTEM =================
-
-// ================= AUTO CREATE DEFAULT ADMIN =================
-window.addEventListener('load', async () => {
-  try {
-    const adminEmail = 'admin@edr.com';
-    const adminPassword = 'Admin123!';
-
-    // Create admin only once
-    try {
-      const result = await createUserWithEmailAndPassword(auth, adminEmail, adminPassword);
-
-      await setDoc(doc(db, 'users', result.user.uid), {
-        email: adminEmail,
-        role: 'admin',
-        createdAt: new Date().toISOString()
-      });
-
-      console.log('Default admin created');
-    } catch (err) {
-      console.log('Admin may already exist:', err.message);
-    }
-  } catch (e) {
-    console.error(e);
-  }
-});
-// ================= END AUTO CREATE DEFAULT ADMIN =================
-
-
 
   // Also expose on window as a fallback for any legacy references
   window.firebaseDB = {
@@ -610,7 +503,7 @@ Resource Management
 <script type=&quot;module&quot;>
   import { initializeApp } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js&apos;;
   import { getFirestore, doc, getDoc as fsGetDoc, setDoc as fsSetDoc } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js&apos;;
-  import { getAuth, signInAnonymously, onAuthStateChanged } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js&apos;;
+  import { getAuth, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, createUserWithEmailAndPassword, onAuthStateChanged } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js&apos;;
   const firebaseConfig = {
     apiKey: &apos;AIzaSyAIqvyxDsDA9hgroUwBICEbNwBTzwgy8x8&apos;,
     authDomain: &apos;edrengineering-8db14.firebaseapp.com&apos;,
@@ -623,12 +516,17 @@ Resource Management
   const _fbDb   = getFirestore(_fbApp);
   const _fbAuth = getAuth(_fbApp);
   let _authReady = false;
-  signInAnonymously(_fbAuth).then(() =&gt; { _authReady = true; }).catch(() =&gt; { _authReady = true; });
+  // Auth ready is set after explicit email/password login
+  window._fbAuthInst = _fbAuth;
+  window._signInEP = (e,p) => signInWithEmailAndPassword(_fbAuth, e, p);
+  window._signOutFn = () => signOut(_fbAuth);
+  window._createUserFn = (e,p) => createUserWithEmailAndPassword(_fbAuth, e, p);
+  window._updatePwFn = (u,p) => updatePassword(u, p);
+  window._EmailAuthProv = EmailAuthProvider;
+  window._reauthFn = reauthenticateWithCredential;
   async function _waitForAuth() {
-    if (_authReady) return;
-    await new Promise(resolve =&gt; {
-      const unsub = onAuthStateChanged(_fbAuth, () =&gt; { unsub(); _authReady = true; resolve(); });
-    });
+    // Auth state is managed by doLogin/doLogout; by the time DB is called user is signed in
+    return;
   }
   window.firebaseDB = {
     async getDoc(collection, docId) {
@@ -653,8 +551,8 @@ Resource Management
     </div>
     <div class="login-logo">EDR Engineering</div>
     <div class="login-sub">Purchase Request Management Platform</div>
-    <label>Username</label>
-    <input type="text" id="loginUsername" placeholder="Enter username" autocomplete="off">
+    <label>Email</label>
+    <input type="email" id="loginUsername" placeholder="Enter email" autocomplete="off">
     <label>Password</label>
     <input type="password" id="loginPassword" placeholder="Enter password">
     <button id="loginBtn" class="btn-primary" onclick="doLogin()">Sign In →</button>
@@ -824,19 +722,7 @@ function showSyncError(msg) {
   banner.style.display = &apos;flex&apos;;
 }
 
-(function loadUsers() {
-  const btn = document.getElementById(&apos;loginBtn&apos;);
-  const err = document.getElementById(&apos;loginError&apos;);
-  if (btn) btn.disabled = true;
-  if (err) err.textContent = &apos;Loading...&apos;;
-  fetch(&apos;users1.json?v=&apos; + Date.now())
-    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-    .then(data => { USERS = data; if (btn) btn.disabled = false; if (err) err.textContent = &apos;&apos;; })
-    .catch(() => {
-      USERS = [{ id: &apos;u1&apos;, username: &apos;admin&apos;, password: &apos;admin@EDR2024&apos;, name: &apos;EDR Administrator&apos;, role: &apos;admin&apos; }];
-      if (btn) btn.disabled = false; if (err) err.textContent = &apos;&apos;;
-    });
-})();
+// Users loaded from Firestore after login
 
 function genId() { return &apos;PR-&apos; + Date.now().toString(36).toUpperCase().slice(-5) + &apos;-&apos; + Math.random().toString(36).slice(2,5).toUpperCase(); }
 function now() { return new Date().toLocaleString(&apos;en-GB&apos;, { hour12: false }); }
@@ -856,24 +742,37 @@ function statusBadge(r) {
 // AUTH
 // ============================================================
 async function doLogin() {
-  const u = document.getElementById(&apos;loginUsername&apos;).value.trim();
-  const p = document.getElementById(&apos;loginPassword&apos;).value;
-  const user = USERS.find(x => x.username === u &amp;&amp; x.password === p);
-  if (!user) { document.getElementById(&apos;loginError&apos;).textContent = &apos;Invalid username or password.&apos;; return; }
-  currentUser = user;
+  const email = document.getElementById(&apos;loginUsername&apos;).value.trim();
+  const pw = document.getElementById(&apos;loginPassword&apos;).value;
+  const errEl = document.getElementById(&apos;loginError&apos;);
   const btn = document.getElementById(&apos;loginBtn&apos;);
-  const err = document.getElementById(&apos;loginError&apos;);
-  if (btn) btn.disabled = true;
-  if (err) err.textContent = &apos;Syncing data...&apos;;
-  await loadCloudData();
-  if (btn) btn.disabled = false;
-  if (err) err.textContent = &apos;&apos;;
-  document.getElementById(&apos;loginScreen&apos;).style.display = &apos;none&apos;;
-  document.getElementById(&apos;appShell&apos;).style.display = &apos;flex&apos;;
-  requestBrowserNotifPermission();
-  buildUI(); showPage(&apos;dashboard&apos;);
+  if (!email || !pw) { errEl.textContent = &apos;Enter email and password.&apos;; return; }
+  try {
+    if (btn) btn.disabled = true;
+    if (errEl) errEl.textContent = &apos;Signing in...&apos;;
+    const cred = await window._signInEP(email, pw);
+    const uid = cred.user.uid;
+    // Load profile from Firestore
+    const profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
+    if (!profile) { errEl.textContent = &apos;No profile found. Contact your admin.&apos;; await window._signOutFn(); if (btn) btn.disabled = false; return; }
+    currentUser = { id: uid, email, ...profile };
+    if (errEl) errEl.textContent = &apos;Syncing data...&apos;;
+    await loadCloudData();
+    if (btn) btn.disabled = false;
+    if (errEl) errEl.textContent = &apos;&apos;;
+    document.getElementById(&apos;loginScreen&apos;).style.display = &apos;none&apos;;
+    document.getElementById(&apos;appShell&apos;).style.display = &apos;flex&apos;;
+    requestBrowserNotifPermission();
+    buildUI(); showPage(&apos;dashboard&apos;);
+  } catch(e) {
+    if (btn) btn.disabled = false;
+    errEl.textContent = e.code === &apos;auth/invalid-credential&apos; || e.code === &apos;auth/wrong-password&apos; || e.code === &apos;auth/user-not-found&apos;
+      ? &apos;Invalid email or password.&apos;
+      : (e.message || &apos;Login failed.&apos;);
+  }
 }
-function doLogout() {
+async function doLogout() {
+  await window._signOutFn();
   currentUser = null;
   document.getElementById(&apos;loginScreen&apos;).style.display = &apos;flex&apos;;
   document.getElementById(&apos;appShell&apos;).style.display = &apos;none&apos;;
@@ -1610,81 +1509,124 @@ function notifications(el) {
 }
 
 // ---- USER MANAGEMENT ----
+async function loadAllUsers() {
+  try {
+    const snap = await window.firebaseDB.getDoc(&apos;users_list&apos;, &apos;all&apos;);
+    USERS = snap ? (snap.list || []) : [];
+  } catch(e) { USERS = []; }
+}
+
 function users(el) {
-  el.innerHTML = `
-    <div class="page-header">
-      <div class="page-title">User Management</div>
-      <div class="page-desc">Create and manage platform users — share credentials with each person</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:24px;align-items:start;">
-      <div class="form-card">
-        <div style="font-family:&apos;Syne&apos;,sans-serif;font-size:16px;font-weight:700;margin-bottom:20px;">➕ Create New User</div>
-        <div class="form-group" style="margin-bottom:14px">
-          <label class="form-label">Full Name</label>
-          <input class="form-input" id="nu_name" placeholder="Full Name">
-        </div>
-        <div class="form-group" style="margin-bottom:14px">
-          <label class="form-label">Username</label>
-          <input class="form-input" id="nu_username" placeholder="username (no spaces)">
-        </div>
-        <div class="form-group" style="margin-bottom:14px">
-          <label class="form-label">Password</label>
-          <input class="form-input" type="password" id="nu_password" placeholder="Set a password">
-        </div>
-        <div class="form-group" style="margin-bottom:20px">
-          <label class="form-label">Role</label>
-          <select class="form-select" id="nu_role">
-            ${Object.entries(ROLES).filter(([k])=>k!==&apos;admin&apos;).map(([k,v])=>`<option value="${k}">${v}</option>`).join(&apos;&apos;)}
-          </select>
-        </div>
-        <button class="btn btn-accent" onclick="createUser()">Create User</button>
+  loadAllUsers().then(() => {
+    el.innerHTML = `
+      <div class="page-header">
+        <div class="page-title">User Management</div>
+        <div class="page-desc">Create Firebase users — they log in with email and password</div>
       </div>
-      <div class="table-card">
-        <div class="table-head">
-          <div class="table-title">All Users (${USERS.length})</div>
-          <button class="btn btn-sm" onclick="downloadUsersJson()" style="background:var(--accent);color:#000;font-weight:600;">⬇ Download users1.json</button>
+      <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:24px;align-items:start;">
+        <div class="form-card">
+          <div style="font-family:&apos;Syne&apos;,sans-serif;font-size:16px;font-weight:700;margin-bottom:20px;">➕ Create New User</div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Full Name</label>
+            <input class="form-input" id="nu_name" placeholder="Full Name">
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Email</label>
+            <input class="form-input" id="nu_email" placeholder="user@example.com" type="email">
+          </div>
+          <div class="form-group" style="margin-bottom:14px">
+            <label class="form-label">Password</label>
+            <input class="form-input" type="password" id="nu_password" placeholder="Min 6 characters">
+          </div>
+          <div class="form-group" style="margin-bottom:20px">
+            <label class="form-label">Role</label>
+            <select class="form-select" id="nu_role">
+              ${Object.entries(ROLES).filter(([k])=>k!==&apos;admin&apos;).map(([k,v])=>`<option value="${k}">${v}</option>`).join(&apos;&apos;)}
+            </select>
+          </div>
+          <button class="btn btn-accent" onclick="createUser()">Create User</button>
         </div>
-        <div style="font-size:11px;color:var(--text3);padding:8px 12px;background:var(--bg2);border-radius:6px;margin-bottom:10px;">After adding/removing users, click Download → upload <b>users1.json</b> to Netlify → all devices update instantly.</div>
-        <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead><tbody>
-          ${USERS.map(u=>`<tr>
-            <td>${u.name}</td>
-            <td style="font-family:&apos;DM Mono&apos;,monospace;font-size:12px;color:var(--accent)">${u.username}</td>
-            <td style="font-size:12px;color:var(--text2)">${ROLES[u.role]}</td>
-            <td>${u.id !== currentUser.id
-              ? `<button class="btn btn-sm btn-red" onclick="deleteUser(&apos;${u.id}&apos;)">Remove</button>`
-              : `<span style="font-size:11px;color:var(--text3)">You</span>`}
-            </td>
-          </tr>`).join(&apos;&apos;)}
-        </tbody></table>
+        <div class="table-card">
+          <div class="table-head">
+            <div class="table-title">All Users (${USERS.length})</div>
+          </div>
+          <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
+            ${USERS.map(u=>`<tr>
+              <td>${u.name}</td>
+              <td style="font-family:&apos;DM Mono&apos;,monospace;font-size:12px;color:var(--accent)">${u.email||&apos;—&apos;}</td>
+              <td style="font-size:12px;color:var(--text2)">${ROLES[u.role]||u.role}</td>
+              <td>${u.id !== currentUser.id
+                ? `<button class="btn btn-sm btn-red" onclick="deleteUser(&apos;${u.id}&apos;)">Remove</button>`
+                : `<span style="font-size:11px;color:var(--text3)">You</span>`}
+              </td>
+            </tr>`).join(&apos;&apos;)}
+          </tbody></table>
+        </div>
       </div>
-    </div>`;
+      <div class="form-card" style="margin-top:24px;max-width:400px">
+        <div style="font-family:&apos;Syne&apos;,sans-serif;font-size:16px;font-weight:700;margin-bottom:16px;">🔑 Change My Password</div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">Current Password</label>
+          <input class="form-input" type="password" id="cp_current" placeholder="Current password">
+        </div>
+        <div class="form-group" style="margin-bottom:14px">
+          <label class="form-label">New Password</label>
+          <input class="form-input" type="password" id="cp_new" placeholder="New password (min 6 chars)">
+        </div>
+        <button class="btn btn-accent" onclick="changeMyPassword()">Update Password</button>
+      </div>`;
+  });
 }
 
-function downloadUsersJson() {
-  const blob = new Blob([JSON.stringify(USERS, null, 2)], { type: &apos;application/json&apos; });
-  const a = document.createElement(&apos;a&apos;);
-  a.href = URL.createObjectURL(blob);
-  a.download = &apos;users1.json&apos;;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast(&apos;users1.json downloaded! Upload it to Netlify to apply changes.&apos;, &apos;success&apos;);
-}
-
-function createUser() {
+async function createUser() {
   const name = document.getElementById(&apos;nu_name&apos;).value.trim();
-  const username = document.getElementById(&apos;nu_username&apos;).value.trim();
+  const email = document.getElementById(&apos;nu_email&apos;).value.trim();
   const password = document.getElementById(&apos;nu_password&apos;).value;
   const role = document.getElementById(&apos;nu_role&apos;).value;
-  if (!name || !username || !password) { toast(&apos;All fields required.&apos;, &apos;error&apos;); return; }
-  if (USERS.find(u => u.username === username)) { toast(&apos;Username already exists.&apos;, &apos;error&apos;); return; }
-  USERS.push({ id: &apos;u&apos;+Date.now(), username, password, name, role });
-saveData();
-  saveData(); toast(&apos;User created!&apos;, &apos;success&apos;); showPage(&apos;users&apos;);
+  if (!name || !email || !password) { toast(&apos;All fields required.&apos;, &apos;error&apos;); return; }
+  const adminEmail = currentUser.email;
+  const adminPw = prompt(&apos;Re-enter your admin password to stay signed in:&apos;);
+  if (!adminPw) { toast(&apos;Cancelled.&apos;, &apos;info&apos;); return; }
+  try {
+    const newCred = await window._createUserFn(email, password);
+    const uid = newCred.user.uid;
+    await window.firebaseDB.setDoc(&apos;users&apos;, uid, { name, email, role });
+    USERS.push({ id: uid, email, name, role });
+    await window.firebaseDB.setDoc(&apos;users_list&apos;, &apos;all&apos;, { list: USERS });
+    // Sign back in as admin
+    await window._signInEP(adminEmail, adminPw);
+    toast(&apos;User created! They can log in with their email and password.&apos;, &apos;success&apos;);
+    showPage(&apos;users&apos;);
+  } catch(e) {
+    // Try re-sign-in anyway
+    try { await window._signInEP(adminEmail, adminPw); } catch(_) {}
+    toast(&apos;Error: &apos; + (e.message || e.code), &apos;error&apos;);
+  }
 }
 
-function deleteUser(id) {
+async function deleteUser(id) {
+  if (!confirm(&apos;Remove this user from the list? (Also delete from Firebase Console to fully revoke access.)&apos;)) return;
   USERS = USERS.filter(u => u.id !== id);
-  saveData(); toast(&apos;User removed.&apos;, &apos;info&apos;); showPage(&apos;users&apos;);
+  await window.firebaseDB.setDoc(&apos;users_list&apos;, &apos;all&apos;, { list: USERS });
+  toast(&apos;User removed. Delete from Firebase Console to fully revoke login.&apos;, &apos;info&apos;);
+  showPage(&apos;users&apos;);
+}
+
+async function changeMyPassword() {
+  const currentPw = document.getElementById(&apos;cp_current&apos;).value;
+  const newPw = document.getElementById(&apos;cp_new&apos;).value;
+  if (!currentPw || !newPw) { toast(&apos;Both fields required.&apos;, &apos;error&apos;); return; }
+  try {
+    const fbUser = window._fbAuthInst.currentUser;
+    const cred = window._EmailAuthProv.credential(fbUser.email, currentPw);
+    await window._reauthFn(fbUser, cred);
+    await window._updatePwFn(fbUser, newPw);
+    toast(&apos;Password updated successfully!&apos;, &apos;success&apos;);
+    document.getElementById(&apos;cp_current&apos;).value = &apos;&apos;;
+    document.getElementById(&apos;cp_new&apos;).value = &apos;&apos;;
+  } catch(e) {
+    toast(&apos;Error: &apos; + (e.message || &apos;Wrong current password?&apos;), &apos;error&apos;);
+  }
 }
 
 // ============================================================
@@ -1970,41 +1912,7 @@ function buildCoverLetterHTML(cl, ceR, cppmR, r) {
   &apos;<div style="text-align:center;margin-top:32px;"><img src="&apos; + STAMP_B64 + &apos;" style="width:90px;height:90px;object-fit:contain;"></div>&apos; +
   &apos;</div>&apos; +
   &apos;<br><div class="no-print" style="padding:16px 40px;"><button onclick="window.print()" style="background:#222222;color:#fff;border:none;padding:10px 28px;font-size:14px;font-weight:bold;border-radius:6px;cursor:pointer;">🖨️ Print / Save as PDF</button></div>&apos; +
-  &apos;
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
-
-</body></html>&apos;;
+  &apos;</body></html>&apos;;
 }
 
 function exportPRtoPDF(id) {
@@ -2052,41 +1960,7 @@ function exportPRtoPDF(id) {
     + ((r.ceTitre || r.cppmTitre) ? &apos;<div style="text-align:center;margin-top:20px;"><img src="&apos; + STAMP_B64 + &apos;" style="width:110px;height:110px;object-fit:contain;opacity:0.92;"></div>&apos; : &apos;&apos;)
     + &apos;<div class="footer">Generated by EDR Engineering Purchase Request Platform · &apos; + new Date().toLocaleString() + &apos;</div>&apos;
     + &apos;<br><button onclick="window.print()" style="background:#000000;color:#ffffff;border:none;padding:10px 24px;font-size:14px;font-weight:bold;border-radius:6px;cursor:pointer;">🖨️ Print / Save as PDF</button>&apos;
-    + &apos;
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
-
-</body></html>&apos;;
+    + &apos;</body></html>&apos;;
 
   const blob = new Blob([pdfHtml], { type: &apos;text/html&apos; });
   const url = URL.createObjectURL(blob);
@@ -2370,40 +2244,6 @@ function downloadApprovedPDF(id) {
     window.print();
   };
 <\/script>
-
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
-
 </body>
 </html>`;
 
@@ -2554,40 +2394,6 @@ async function autoSync() {
 setInterval(autoSync, 30000);
 document.addEventListener(&apos;visibilitychange&apos;, () => { if (document.visibilityState === &apos;visible&apos;) autoSync(); });
 </script>
-
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
-
 </body>
 </html>
 '></iframe>
@@ -2880,7 +2686,7 @@ Enable Email/Password in Firebase Authentication.
 <script type=&quot;module&quot;>
   import { initializeApp } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js&apos;;
   import { getFirestore, doc, getDoc as fsGetDoc, setDoc as fsSetDoc } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js&apos;;
-  import { getAuth, signInAnonymously, onAuthStateChanged } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js&apos;;
+  import { getAuth, signInWithEmailAndPassword, signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential, createUserWithEmailAndPassword, onAuthStateChanged } from &apos;https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js&apos;;
   const firebaseConfig = {
     apiKey: &apos;AIzaSyAIqvyxDsDA9hgroUwBICEbNwBTzwgy8x8&apos;,
     authDomain: &apos;edrengineering-8db14.firebaseapp.com&apos;,
@@ -2893,12 +2699,17 @@ Enable Email/Password in Firebase Authentication.
   const _fbDb   = getFirestore(_fbApp);
   const _fbAuth = getAuth(_fbApp);
   let _authReady = false;
-  signInAnonymously(_fbAuth).then(() =&gt; { _authReady = true; }).catch(() =&gt; { _authReady = true; });
+  // Auth ready is set after explicit email/password login
+  window._fbAuthInst = _fbAuth;
+  window._signInEP = (e,p) => signInWithEmailAndPassword(_fbAuth, e, p);
+  window._signOutFn = () => signOut(_fbAuth);
+  window._createUserFn = (e,p) => createUserWithEmailAndPassword(_fbAuth, e, p);
+  window._updatePwFn = (u,p) => updatePassword(u, p);
+  window._EmailAuthProv = EmailAuthProvider;
+  window._reauthFn = reauthenticateWithCredential;
   async function _waitForAuth() {
-    if (_authReady) return;
-    await new Promise(resolve =&gt; {
-      const unsub = onAuthStateChanged(_fbAuth, () =&gt; { unsub(); _authReady = true; resolve(); });
-    });
+    // Auth state is managed by doLogin/doLogout; by the time DB is called user is signed in
+    return;
   }
   window.firebaseDB = {
     async getDoc(collection, docId) {
@@ -2925,8 +2736,8 @@ Enable Email/Password in Firebase Authentication.
     <div class="login-logo" style="text-align:center;">EDR Engineering</div>
     
     <div class="login-sub">Resource Management Platform</div>
-    <label>Username</label>
-    <input type="text" id="loginUsername" placeholder="Enter username" autocomplete="off">
+    <label>Email</label>
+    <input type="email" id="loginUsername" placeholder="Enter email" autocomplete="off">
     <label>Password</label>
     <input type="password" id="loginPassword" placeholder="Enter password">
     <button id="loginBtn" class="btn-primary" onclick="doLogin()">Sign In</button>
@@ -3085,19 +2896,7 @@ function showSyncError(msg) {
   banner.style.display = &apos;flex&apos;;
 }
 
-(function loadUsers() {
-  const btn = document.getElementById(&apos;loginBtn&apos;);
-  const err = document.getElementById(&apos;loginError&apos;);
-  if (btn) btn.disabled = true;
-  if (err) err.textContent = &apos;Loading...&apos;;
-  fetch(&apos;users2.json?v=&apos; + Date.now())
-    .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-    .then(data => { USERS = data; if (btn) btn.disabled = false; if (err) err.textContent = &apos;&apos;; })
-    .catch(() => {
-      USERS = [{ id: &apos;u1&apos;, username: &apos;admin&apos;, password: &apos;admin@EDR2024&apos;, name: &apos;EDR Administrator&apos;, role: &apos;admin&apos; }];
-      if (btn) btn.disabled = false; if (err) err.textContent = &apos;&apos;;
-    });
-})();
+// Users loaded from Firestore after login
 
 function genId() { return &apos;L&apos; + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2,5).toUpperCase(); }
 function now() { return new Date().toLocaleString(&apos;en-GB&apos;, { hour12: false }); }
@@ -3137,25 +2936,37 @@ function statusBadge(status, stage) {
 // AUTH
 // ============================================================
 async function doLogin() {
-  const u = document.getElementById(&apos;loginUsername&apos;).value.trim();
-  const p = document.getElementById(&apos;loginPassword&apos;).value;
-  const user = USERS.find(x => x.username === u &amp;&amp; x.password === p);
-  if (!user) { document.getElementById(&apos;loginError&apos;).textContent = &apos;Invalid username or password.&apos;; return; }
-  currentUser = user;
+  const email = document.getElementById(&apos;loginUsername&apos;).value.trim();
+  const pw = document.getElementById(&apos;loginPassword&apos;).value;
+  const errEl = document.getElementById(&apos;loginError&apos;);
   const btn = document.getElementById(&apos;loginBtn&apos;);
-  const err = document.getElementById(&apos;loginError&apos;);
-  if (btn) btn.disabled = true;
-  if (err) err.textContent = &apos;Syncing data...&apos;;
-  await loadCloudData();
-  if (btn) btn.disabled = false;
-  if (err) err.textContent = &apos;&apos;;
-  document.getElementById(&apos;loginScreen&apos;).style.display = &apos;none&apos;;
-  document.getElementById(&apos;appShell&apos;).style.display = &apos;flex&apos;;
-  requestBrowserNotifPermission();
-  buildUI();
-  showPage(&apos;dashboard&apos;);
+  if (!email || !pw) { errEl.textContent = &apos;Enter email and password.&apos;; return; }
+  try {
+    if (btn) btn.disabled = true;
+    if (errEl) errEl.textContent = &apos;Signing in...&apos;;
+    const cred = await window._signInEP(email, pw);
+    const uid = cred.user.uid;
+    const profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
+    if (!profile) { errEl.textContent = &apos;No profile found. Contact your admin.&apos;; await window._signOutFn(); if (btn) btn.disabled = false; return; }
+    currentUser = { id: uid, email, ...profile };
+    if (errEl) errEl.textContent = &apos;Syncing data...&apos;;
+    await loadCloudData();
+    if (btn) btn.disabled = false;
+    if (errEl) errEl.textContent = &apos;&apos;;
+    document.getElementById(&apos;loginScreen&apos;).style.display = &apos;none&apos;;
+    document.getElementById(&apos;appShell&apos;).style.display = &apos;flex&apos;;
+    requestBrowserNotifPermission();
+    buildUI();
+    showPage(&apos;dashboard&apos;);
+  } catch(e) {
+    if (btn) btn.disabled = false;
+    errEl.textContent = e.code === &apos;auth/invalid-credential&apos; || e.code === &apos;auth/wrong-password&apos; || e.code === &apos;auth/user-not-found&apos;
+      ? &apos;Invalid email or password.&apos;
+      : (e.message || &apos;Login failed.&apos;);
+  }
 }
-function doLogout() {
+async function doLogout() {
+  await window._signOutFn();
   currentUser = null;
   document.getElementById(&apos;loginScreen&apos;).style.display = &apos;flex&apos;;
   document.getElementById(&apos;appShell&apos;).style.display = &apos;none&apos;;
@@ -3783,82 +3594,121 @@ function notifications(el) {
 }
 
 // ---- USER MANAGEMENT (ADMIN) ----
+async function loadAllUsers() {
+  try {
+    const snap = await window.firebaseDB.getDoc(&apos;users_list&apos;, &apos;all&apos;);
+    USERS = snap ? (snap.list || []) : [];
+  } catch(e) { USERS = []; }
+}
+
 function users(el) {
-  el.innerHTML = `
-    <div class="page-header">
-      <div class="page-title">User Management</div>
-      <div class="page-desc">Create and manage system users</div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
-      <div>
-        <div class="form-card">
-          <div style="font-family:&apos;Syne&apos;,sans-serif;font-size:16px;font-weight:700;margin-bottom:20px;">Create New User</div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label class="form-label">Full Name</label>
-            <input class="form-input" id="nu_name" placeholder="Full Name">
-          </div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label class="form-label">Username</label>
-            <input class="form-input" id="nu_username" placeholder="username">
-          </div>
-          <div class="form-group" style="margin-bottom:14px">
-            <label class="form-label">Password</label>
-            <input class="form-input" type="password" id="nu_password" placeholder="Password">
-          </div>
-          <div class="form-group" style="margin-bottom:20px">
-            <label class="form-label">Role</label>
-            <select class="form-select" id="nu_role">
-              ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v}</option>`).join(&apos;&apos;)}
-            </select>
-          </div>
-          <button class="btn btn-accent" onclick="createUser()">➕ Create User</button>
-        </div>
+  loadAllUsers().then(() => {
+    el.innerHTML = `
+      <div class="page-header">
+        <div class="page-title">User Management</div>
+        <div class="page-desc">Create Firebase users — they log in with email and password</div>
       </div>
-      <div class="table-card">
-        <div class="table-head">
-          <div class="table-title">All Users</div>
-          <button class="btn btn-sm" onclick="downloadUsersJson()" style="background:var(--accent);color:#000;font-weight:600;">⬇ Download users2.json</button>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+        <div>
+          <div class="form-card">
+            <div style="font-family:&apos;Syne&apos;,sans-serif;font-size:16px;font-weight:700;margin-bottom:20px;">Create New User</div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label class="form-label">Full Name</label>
+              <input class="form-input" id="nu_name" placeholder="Full Name">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label class="form-label">Email</label>
+              <input class="form-input" id="nu_email" placeholder="user@example.com" type="email">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label class="form-label">Password</label>
+              <input class="form-input" type="password" id="nu_password" placeholder="Min 6 characters">
+            </div>
+            <div class="form-group" style="margin-bottom:20px">
+              <label class="form-label">Role</label>
+              <select class="form-select" id="nu_role">
+                ${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v}</option>`).join(&apos;&apos;)}
+              </select>
+            </div>
+            <button class="btn btn-accent" onclick="createUser()">➕ Create User</button>
+          </div>
+          <div class="form-card" style="margin-top:20px">
+            <div style="font-family:&apos;Syne&apos;,sans-serif;font-size:16px;font-weight:700;margin-bottom:16px;">🔑 Change My Password</div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label class="form-label">Current Password</label>
+              <input class="form-input" type="password" id="cp_current" placeholder="Current password">
+            </div>
+            <div class="form-group" style="margin-bottom:14px">
+              <label class="form-label">New Password</label>
+              <input class="form-input" type="password" id="cp_new" placeholder="New password (min 6 chars)">
+            </div>
+            <button class="btn btn-accent" onclick="changeMyPassword()">Update Password</button>
+          </div>
         </div>
-        <div style="font-size:11px;color:var(--text3);padding:8px 12px;background:var(--bg2);border-radius:6px;margin-bottom:10px;">After adding/removing users, click Download → upload <b>users2.json</b> to Netlify → all devices update instantly.</div>
-        <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th></th></tr></thead><tbody>
-          ${USERS.map(u=>`<tr>
-            <td>${u.name}</td>
-            <td style="font-family:&apos;DM Mono&apos;,monospace;font-size:12px;color:var(--accent)">${u.username}</td>
-            <td style="font-size:12px;color:var(--text2)">${ROLES[u.role]}</td>
-            <td>${u.id !== currentUser.id ? `<button class="btn btn-sm btn-red" onclick="deleteUser(&apos;${u.id}&apos;)">Remove</button>` : `<span style="font-size:11px;color:var(--text3)">You</span>`}</td>
-          </tr>`).join(&apos;&apos;)}
-        </tbody></table>
-      </div>
-    </div>`;
+        <div class="table-card">
+          <div class="table-head">
+            <div class="table-title">All Users (${USERS.length})</div>
+          </div>
+          <table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th></th></tr></thead><tbody>
+            ${USERS.map(u=>`<tr>
+              <td>${u.name}</td>
+              <td style="font-family:&apos;DM Mono&apos;,monospace;font-size:12px;color:var(--accent)">${u.email||&apos;—&apos;}</td>
+              <td style="font-size:12px;color:var(--text2)">${ROLES[u.role]||u.role}</td>
+              <td>${u.id !== currentUser.id ? `<button class="btn btn-sm btn-red" onclick="deleteUser(&apos;${u.id}&apos;)">Remove</button>` : `<span style="font-size:11px;color:var(--text3)">You</span>`}</td>
+            </tr>`).join(&apos;&apos;)}
+          </tbody></table>
+        </div>
+      </div>`;
+  });
 }
 
-function downloadUsersJson() {
-  const blob = new Blob([JSON.stringify(USERS, null, 2)], { type: &apos;application/json&apos; });
-  const a = document.createElement(&apos;a&apos;);
-  a.href = URL.createObjectURL(blob);
-  a.download = &apos;users2.json&apos;;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  toast(&apos;users2.json downloaded! Upload it to Netlify to apply changes.&apos;, &apos;success&apos;);
-}
-
-function createUser() {
+async function createUser() {
   const name = document.getElementById(&apos;nu_name&apos;).value.trim();
-  const username = document.getElementById(&apos;nu_username&apos;).value.trim();
+  const email = document.getElementById(&apos;nu_email&apos;).value.trim();
   const password = document.getElementById(&apos;nu_password&apos;).value;
   const role = document.getElementById(&apos;nu_role&apos;).value;
-  if (!name || !username || !password) { toast(&apos;All fields required.&apos;, &apos;error&apos;); return; }
-  if (USERS.find(u => u.username === username)) { toast(&apos;Username already exists.&apos;, &apos;error&apos;); return; }
-  USERS.push({ id: &apos;u&apos;+Date.now(), username, password, name, role });
-saveData();
-  saveData(); toast(&apos;User created successfully!&apos;, &apos;success&apos;);
+  if (!name || !email || !password) { toast(&apos;All fields required.&apos;, &apos;error&apos;); return; }
+  const adminEmail = currentUser.email;
+  const adminPw = prompt(&apos;Re-enter your admin password to stay signed in:&apos;);
+  if (!adminPw) { toast(&apos;Cancelled.&apos;, &apos;info&apos;); return; }
+  try {
+    const newCred = await window._createUserFn(email, password);
+    const uid = newCred.user.uid;
+    await window.firebaseDB.setDoc(&apos;users&apos;, uid, { name, email, role });
+    USERS.push({ id: uid, email, name, role });
+    await window.firebaseDB.setDoc(&apos;users_list&apos;, &apos;all&apos;, { list: USERS });
+    await window._signInEP(adminEmail, adminPw);
+    toast(&apos;User created! They can log in with their email and password.&apos;, &apos;success&apos;);
+    showPage(&apos;users&apos;);
+  } catch(e) {
+    try { await window._signInEP(adminEmail, adminPw); } catch(_) {}
+    toast(&apos;Error: &apos; + (e.message || e.code), &apos;error&apos;);
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm(&apos;Remove this user from the list? Also delete from Firebase Console to fully revoke login.&apos;)) return;
+  USERS = USERS.filter(u => u.id !== id);
+  await window.firebaseDB.setDoc(&apos;users_list&apos;, &apos;all&apos;, { list: USERS });
+  toast(&apos;User removed. Delete from Firebase Console to fully revoke access.&apos;, &apos;info&apos;);
   showPage(&apos;users&apos;);
 }
 
-function deleteUser(id) {
-  USERS = USERS.filter(u => u.id !== id);
-  saveData(); toast(&apos;User removed.&apos;, &apos;info&apos;);
-  showPage(&apos;users&apos;);
+async function changeMyPassword() {
+  const currentPw = document.getElementById(&apos;cp_current&apos;).value;
+  const newPw = document.getElementById(&apos;cp_new&apos;).value;
+  if (!currentPw || !newPw) { toast(&apos;Both fields required.&apos;, &apos;error&apos;); return; }
+  try {
+    const fbUser = window._fbAuthInst.currentUser;
+    const cred = window._EmailAuthProv.credential(fbUser.email, currentPw);
+    await window._reauthFn(fbUser, cred);
+    await window._updatePwFn(fbUser, newPw);
+    toast(&apos;Password updated successfully!&apos;, &apos;success&apos;);
+    document.getElementById(&apos;cp_current&apos;).value = &apos;&apos;;
+    document.getElementById(&apos;cp_new&apos;).value = &apos;&apos;;
+  } catch(e) {
+    toast(&apos;Error: &apos; + (e.message || &apos;Wrong current password?&apos;), &apos;error&apos;);
+  }
 }
 
 // ============================================================
@@ -4187,40 +4037,6 @@ function downloadApprovedPDF(id) {
     window.print();
   };
 <\/script>
-
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
-
 </body>
 </html>`;
 
@@ -4337,40 +4153,6 @@ async function autoSync() {
 setInterval(autoSync, 30000);
 document.addEventListener(&apos;visibilitychange&apos;, () => { if (document.visibilityState === &apos;visible&apos;) autoSync(); });
 </script>
-
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
-
 </body>
 </html>
 '></iframe>
@@ -4424,40 +4206,6 @@ btn.classList.add('active');
 
 // Sync is handled internally by each iframe (visibilitychange + setInterval)
 </script>
-
-
-<!-- ================= FIREBASE USER MANAGEMENT NOTES =================
-Admin can create users using:
-createFirebaseUser('user@email.com', 'password123', 'admin')
-
-User login:
-firebaseLogin('user@email.com', 'password123')
-
-User password change:
-changeFirebasePassword('newPassword123')
-
-Firestore Collection:
-users
-
-Enable Email/Password Authentication in Firebase Console.
-===================================================== -->
-
-
-<!--
-DEFAULT ADMIN LOGIN
-Email: admin@edr.com
-Password: Admin123!
--->
-
-
-<!--
-LOGIN DETAILS
-Email: admin@edr.com
-Password: Admin123!
-
-IMPORTANT:
-Enable Email/Password in Firebase Authentication.
--->
 
 </body>
 </html>
