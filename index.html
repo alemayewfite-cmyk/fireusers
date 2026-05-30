@@ -763,14 +763,11 @@ async function doLogin() {
     // Load profile from Firestore
     let profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
     if (!profile) {
-      // Auto-bootstrap admin profile if this is the admin account
-      if (email === &apos;alemayehu_beyene@edrsc.com&apos;) {
-        profile = { name: &apos;EDR Administrator&apos;, email, role: &apos;admin&apos; };
-        try { await window.firebaseDB.setDoc(&apos;users&apos;, uid, profile); } catch(_) {}
-      } else {
-        errEl.textContent = &apos;No profile found. Contact your admin.&apos;;
-        await window._signOutFn(); if (btn) btn.disabled = false; return;
-      }
+      // Auto-create profile: admin gets admin role, others get a placeholder role
+      const isAdmin = email === &apos;alemayehu_beyene@edrsc.com&apos;;
+      const guessedName = email.split(&apos;@&apos;)[0].replace(/[._]/g, &apos; &apos;).replace(/\w/g, c => c.toUpperCase());
+      profile = { name: guessedName, email, role: isAdmin ? &apos;admin&apos; : &apos;pm&apos; };
+      try { await window.firebaseDB.setDoc(&apos;users&apos;, uid, profile); } catch(_) {}
     }
     currentUser = { id: uid, email, ...profile };
     if (errEl) errEl.textContent = &apos;Syncing data...&apos;;
@@ -783,8 +780,11 @@ async function doLogin() {
     buildUI(); showPage(&apos;dashboard&apos;);
   } catch(e) {
     if (btn) btn.disabled = false;
-    errEl.textContent = e.code === &apos;auth/invalid-credential&apos; || e.code === &apos;auth/wrong-password&apos; || e.code === &apos;auth/user-not-found&apos;
+    errEl.textContent = (e.code === &apos;auth/invalid-credential&apos; || e.code === &apos;auth/wrong-password&apos; || e.code === &apos;auth/user-not-found&apos;)
       ? &apos;Invalid email or password.&apos;
+      : e.code === &apos;auth/invalid-email&apos; ? &apos;Invalid email address.&apos;
+      : e.code === &apos;auth/user-disabled&apos; ? &apos;This account has been disabled.&apos;
+      : e.code === &apos;auth/too-many-requests&apos; ? &apos;Too many attempts. Try again later.&apos;
       : (e.message || &apos;Login failed.&apos;);
   }
 }
@@ -2968,14 +2968,11 @@ async function doLogin() {
     const uid = cred.user.uid;
     let profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
     if (!profile) {
-      // Auto-bootstrap admin profile if this is the admin account
-      if (email === &apos;alemayehu_beyene@edrsc.com&apos;) {
-        profile = { name: &apos;EDR Administrator&apos;, email, role: &apos;admin&apos; };
-        try { await window.firebaseDB.setDoc(&apos;users&apos;, uid, profile); } catch(_) {}
-      } else {
-        errEl.textContent = &apos;No profile found. Contact your admin.&apos;;
-        await window._signOutFn(); if (btn) btn.disabled = false; return;
-      }
+      // Auto-create profile: admin gets admin role, others get a placeholder role
+      const isAdmin = email === &apos;alemayehu_beyene@edrsc.com&apos;;
+      const guessedName = email.split(&apos;@&apos;)[0].replace(/[._]/g, &apos; &apos;).replace(/\w/g, c => c.toUpperCase());
+      profile = { name: guessedName, email, role: isAdmin ? &apos;admin&apos; : &apos;pm&apos; };
+      try { await window.firebaseDB.setDoc(&apos;users&apos;, uid, profile); } catch(_) {}
     }
     currentUser = { id: uid, email, ...profile };
     if (errEl) errEl.textContent = &apos;Syncing data...&apos;;
@@ -2989,8 +2986,11 @@ async function doLogin() {
     showPage(&apos;dashboard&apos;);
   } catch(e) {
     if (btn) btn.disabled = false;
-    errEl.textContent = e.code === &apos;auth/invalid-credential&apos; || e.code === &apos;auth/wrong-password&apos; || e.code === &apos;auth/user-not-found&apos;
+    errEl.textContent = (e.code === &apos;auth/invalid-credential&apos; || e.code === &apos;auth/wrong-password&apos; || e.code === &apos;auth/user-not-found&apos;)
       ? &apos;Invalid email or password.&apos;
+      : e.code === &apos;auth/invalid-email&apos; ? &apos;Invalid email address.&apos;
+      : e.code === &apos;auth/user-disabled&apos; ? &apos;This account has been disabled.&apos;
+      : e.code === &apos;auth/too-many-requests&apos; ? &apos;Too many attempts. Try again later.&apos;
       : (e.message || &apos;Login failed.&apos;);
   }
 }
