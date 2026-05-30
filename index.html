@@ -15,24 +15,32 @@
   /*
    * ── FIRESTORE SECURITY RULES (deploy via Firebase Console → Firestore → Rules) ──
    *
+   * ── FIRESTORE SECURITY RULES ──
+   * Paste these into Firebase Console → Firestore Database → Rules → Publish:
+   *
    * rules_version = '2';
    * service cloud.firestore {
    *   match /databases/{database}/documents {
-   *     // Only authenticated users (anonymous or real) may read/write edr_sync docs
+   *
+   *     // App sync data — any signed-in user can read/write
    *     match /edr_sync/{docId} {
    *       allow read, write: if request.auth != null;
    *     }
+   *
+   *     // User profiles — any signed-in user can read (to load their own profile)
+   *     // Only admin (alemayehu_beyene@edrsc.com) can write
+   *     match /users/{uid} {
+   *       allow read: if request.auth != null;
+   *       allow write: if request.auth != null && request.auth.token.email == 'alemayehu_beyene@edrsc.com';
+   *     }
+   *
+   *     // Users list (for User Management page) — same rules as above
+   *     match /users_list/{docId} {
+   *       allow read: if request.auth != null;
+   *       allow write: if request.auth != null && request.auth.token.email == 'alemayehu_beyene@edrsc.com';
+   *     }
    *   }
    * }
-   *
-   * ── To upgrade to full Firebase Authentication ──
-   * 1. In Firebase Console → Authentication → Sign-in method, enable the
-   *    providers you need (Email/Password, Google, etc.).
-   * 2. Replace the signInAnonymously() call below with your chosen provider flow
-   *    (e.g. signInWithEmailAndPassword, signInWithPopup).
-   * 3. Store the resolved user's uid in the Firestore document path so each user
-   *    only accesses their own data:  /users/{uid}/edr_sync/{docId}
-   *    and update the security rules to:  allow read, write: if request.auth.uid == userId;
    */
 
   const firebaseConfig = {
