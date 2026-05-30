@@ -1601,22 +1601,25 @@ async function createUser() {
   const password = document.getElementById(&apos;nu_password&apos;).value;
   const role = document.getElementById(&apos;nu_role&apos;).value;
   if (!name || !email || !password) { toast(&apos;All fields required.&apos;, &apos;error&apos;); return; }
-  const adminEmail = currentUser.email;
-  const adminPw = prompt(&apos;Re-enter your admin password to stay signed in:&apos;);
-  if (!adminPw) { toast(&apos;Cancelled.&apos;, &apos;info&apos;); return; }
   try {
-    const newCred = await window._createUserFn(email, password);
-    const uid = newCred.user.uid;
+    const apiKey = &apos;AIzaSyAIqvyxDsDA9hgroUwBICEbNwBTzwgy8x8&apos;;
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+      method: &apos;POST&apos;,
+      headers: { &apos;Content-Type&apos;: &apos;application/json&apos; },
+      body: JSON.stringify({ email, password, returnSecureToken: false })
+    });
+    const data = await res.json();
+    if (data.error) { toast(&apos;Error: &apos; + data.error.message, &apos;error&apos;); return; }
+    const uid = data.localId;
     await window.firebaseDB.setDoc(&apos;users&apos;, uid, { name, email, role });
     USERS.push({ id: uid, email, name, role });
     await window.firebaseDB.setDoc(&apos;users_list&apos;, &apos;all&apos;, { list: USERS });
-    // Sign back in as admin
-    await window._signInEP(adminEmail, adminPw);
-    toast(&apos;User created! They can log in with their email and password.&apos;, &apos;success&apos;);
+    toast(&apos;User created! They can now log in with their email and password.&apos;, &apos;success&apos;);
+    document.getElementById(&apos;nu_name&apos;).value = &apos;&apos;;
+    document.getElementById(&apos;nu_email&apos;).value = &apos;&apos;;
+    document.getElementById(&apos;nu_password&apos;).value = &apos;&apos;;
     showPage(&apos;users&apos;);
   } catch(e) {
-    // Try re-sign-in anyway
-    try { await window._signInEP(adminEmail, adminPw); } catch(_) {}
     toast(&apos;Error: &apos; + (e.message || e.code), &apos;error&apos;);
   }
 }
@@ -3694,20 +3697,25 @@ async function createUser() {
   const password = document.getElementById(&apos;nu_password&apos;).value;
   const role = document.getElementById(&apos;nu_role&apos;).value;
   if (!name || !email || !password) { toast(&apos;All fields required.&apos;, &apos;error&apos;); return; }
-  const adminEmail = currentUser.email;
-  const adminPw = prompt(&apos;Re-enter your admin password to stay signed in:&apos;);
-  if (!adminPw) { toast(&apos;Cancelled.&apos;, &apos;info&apos;); return; }
   try {
-    const newCred = await window._createUserFn(email, password);
-    const uid = newCred.user.uid;
+    const apiKey = &apos;AIzaSyAIqvyxDsDA9hgroUwBICEbNwBTzwgy8x8&apos;;
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${apiKey}`, {
+      method: &apos;POST&apos;,
+      headers: { &apos;Content-Type&apos;: &apos;application/json&apos; },
+      body: JSON.stringify({ email, password, returnSecureToken: false })
+    });
+    const data = await res.json();
+    if (data.error) { toast(&apos;Error: &apos; + data.error.message, &apos;error&apos;); return; }
+    const uid = data.localId;
     await window.firebaseDB.setDoc(&apos;users&apos;, uid, { name, email, role });
     USERS.push({ id: uid, email, name, role });
     await window.firebaseDB.setDoc(&apos;users_list&apos;, &apos;all&apos;, { list: USERS });
-    await window._signInEP(adminEmail, adminPw);
-    toast(&apos;User created! They can log in with their email and password.&apos;, &apos;success&apos;);
+    toast(&apos;User created! They can now log in with their email and password.&apos;, &apos;success&apos;);
+    document.getElementById(&apos;nu_name&apos;).value = &apos;&apos;;
+    document.getElementById(&apos;nu_email&apos;).value = &apos;&apos;;
+    document.getElementById(&apos;nu_password&apos;).value = &apos;&apos;;
     showPage(&apos;users&apos;);
   } catch(e) {
-    try { await window._signInEP(adminEmail, adminPw); } catch(_) {}
     toast(&apos;Error: &apos; + (e.message || e.code), &apos;error&apos;);
   }
 }
