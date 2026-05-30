@@ -761,7 +761,7 @@ async function doLogin() {
     const cred = await window._signInEP(email, pw);
     const uid = cred.user.uid;
     // Load profile from Firestore
-    const profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
+    let profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
     if (!profile) {
       // Auto-bootstrap admin profile if this is the admin account
       if (email === &apos;alemayehu_beyene@edrsc.com&apos;) {
@@ -2963,7 +2963,7 @@ async function doLogin() {
     if (errEl) errEl.textContent = &apos;Signing in...&apos;;
     const cred = await window._signInEP(email, pw);
     const uid = cred.user.uid;
-    const profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
+    let profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
     if (!profile) {
       // Auto-bootstrap admin profile if this is the admin account
       if (email === &apos;alemayehu_beyene@edrsc.com&apos;) {
