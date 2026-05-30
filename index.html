@@ -762,7 +762,16 @@ async function doLogin() {
     const uid = cred.user.uid;
     // Load profile from Firestore
     const profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
-    if (!profile) { errEl.textContent = &apos;No profile found. Contact your admin.&apos;; await window._signOutFn(); if (btn) btn.disabled = false; return; }
+    if (!profile) {
+      // Auto-bootstrap admin profile if this is the admin account
+      if (email === &apos;alemayehu_beyene@edrsc.com&apos;) {
+        profile = { name: &apos;EDR Administrator&apos;, email, role: &apos;admin&apos; };
+        try { await window.firebaseDB.setDoc(&apos;users&apos;, uid, profile); } catch(_) {}
+      } else {
+        errEl.textContent = &apos;No profile found. Contact your admin.&apos;;
+        await window._signOutFn(); if (btn) btn.disabled = false; return;
+      }
+    }
     currentUser = { id: uid, email, ...profile };
     if (errEl) errEl.textContent = &apos;Syncing data...&apos;;
     await loadCloudData();
@@ -2955,7 +2964,16 @@ async function doLogin() {
     const cred = await window._signInEP(email, pw);
     const uid = cred.user.uid;
     const profile = await window.firebaseDB.getDoc(&apos;users&apos;, uid);
-    if (!profile) { errEl.textContent = &apos;No profile found. Contact your admin.&apos;; await window._signOutFn(); if (btn) btn.disabled = false; return; }
+    if (!profile) {
+      // Auto-bootstrap admin profile if this is the admin account
+      if (email === &apos;alemayehu_beyene@edrsc.com&apos;) {
+        profile = { name: &apos;EDR Administrator&apos;, email, role: &apos;admin&apos; };
+        try { await window.firebaseDB.setDoc(&apos;users&apos;, uid, profile); } catch(_) {}
+      } else {
+        errEl.textContent = &apos;No profile found. Contact your admin.&apos;;
+        await window._signOutFn(); if (btn) btn.disabled = false; return;
+      }
+    }
     currentUser = { id: uid, email, ...profile };
     if (errEl) errEl.textContent = &apos;Syncing data...&apos;;
     await loadCloudData();
